@@ -130,8 +130,8 @@ async function installCrystalForLinux({crystal, shards, arch = getArch(), path})
     checkArch(arch, Object.keys(filePatterns));
 
     const packages = "libevent-dev libgmp-dev libssl-dev libxml2-dev libyaml-dev".split(" ");
-    const usesPcre2 = crystal === Latest || crystal === Nightly ||
-        BranchVersion.test(crystal) || cmpTags(crystal, "1.8") >= 0;
+    const usesPcre2 = crystal === Latest || crystal === Nightly
+        || BranchVersion.test(crystal) || cmpTags(crystal, "1.8") >= 0;
     if (usesPcre2) {
         packages.push("libpcre2-dev");
     } else {
@@ -453,18 +453,24 @@ async function downloadCrystalNightly(filePattern, branch) {
     return onlySubdir(extractedPath);
 }
 
-async function installCrystalForWindows({crystal, shards, arch = "x86_64", path}) {
+async function installCrystalForWindows({crystal, shards, arch = getArch(), path}) {
     checkVersion(crystal, [Latest, Nightly, NumericVersion, BranchVersion], "1.3");
-    checkArch(arch, ["x86_64"]);
+    const hasAArch64 = crystal === Latest || crystal === Nightly
+        || BranchVersion.test(crystal) || cmpTags(crystal, "1.22") >= 0;
+    if (hasAArch64) {
+        checkArch(arch, ["x86_64", "aarch64"]);
+    } else {
+        checkArch(arch, ["x86_64"]);
+    }
 
     if (crystal === Nightly) {
-        await IO.mv(await downloadCrystalNightlyForWindows("master"), path);
+        await IO.mv(await downloadCrystalNightlyForWindows("master", arch), path);
     } else {
         const version = BranchVersion.exec(crystal);
         if (version) {
-            await IO.mv(await downloadCrystalNightlyForWindows(version[1]), path);
+            await IO.mv(await downloadCrystalNightlyForWindows(version[1], arch), path);
         } else {
-            const filePattern = /-windows-x86_64-msvc(-unsupported)?\.zip$/;
+            const filePattern = new RegExp(`-windows-${arch}-msvc(-unsupported)?\\.zip$`);
             await installBinaryRelease({crystal, shards, filePattern, path});
         }
     }
@@ -478,7 +484,7 @@ async function installCrystalForWindows({crystal, shards, arch = "x86_64", path}
     }
 }
 
-async function downloadCrystalNightlyForWindows(branch) {
+async function downloadCrystalNightlyForWindows(branch, arch) {
     Core.info(`Looking for latest Crystal build of branch '${branch}'`);
 
     const runsResp = await github.rest.actions.listWorkflowRuns({
@@ -493,7 +499,9 @@ async function downloadCrystalNightlyForWindows(branch) {
     const artifactsResp = await github.rest.actions.listWorkflowRunArtifacts({
         ...RepoCrystal, "run_id": runId,
     });
-    const artifact = artifactsResp.data["artifacts"].find((x) => x.name === "crystal");
+    const artifactName = `crystal-${arch}-windows-msvc`;
+    const artifact = artifactsResp.data["artifacts"].find((x) => x.name === artifactName)
+        || artifactsResp.data["artifacts"].find((x) => x.name === "crystal");
 
     Core.info("Downloading Crystal build");
     const resp = await github.rest.actions.downloadArtifact({
